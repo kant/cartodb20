@@ -1,6 +1,8 @@
 # encoding: utf-8
 require 'ostruct'
-require_relative '../spec_helper'
+require 'sequel'
+
+Sequel::Model.db = Sequel.postgres
 require_relative '../../app/models/asset'
 
 describe Asset do
@@ -11,11 +13,12 @@ describe Asset do
       email:    'client@example.com',
       password: 'clientex'
     )
+    @configuration = { assets: { 'max_file_size' => 1485670 } }
   end
 
   describe 'validations' do
     it 'requires a user_id' do
-      asset = Asset.new
+      asset = Asset.new(configuration: @configuration)
 
       expect { asset.save }.to raise_error(Sequel::ValidationFailed)
       asset.errors.full_messages.include?("user_id can't be blank")
@@ -23,10 +26,10 @@ describe Asset do
     end
 
     it 'requires a valid file' do
-      pending
       asset = Asset.new(
-        user:       @user,
-        asset_file: Rails.root + 'db/fake_data/i_dont_exist.json'
+        configuration:  @confiuration,
+        user:           @user,
+        asset_file:     Rails.root + 'db/fake_data/i_dont_exist.json'
       )
       
       expect { asset.save }.to raise_error(Sequel::ValidationFailed)
@@ -34,10 +37,10 @@ describe Asset do
     end
 
     it 'rejects files bigger than 10 MB' do
-      pending
       asset = Asset.new(
-        user:       @user,
-        asset_file: Rails.root + 'spec/support/data/GLOBAL_ELEVATION_SIMPLE.zip'
+        configuration:  @confiuration,
+        user:           @user,
+        asset_file:     Rails.root + 'spec/support/data/GLOBAL_ELEVATION_SIMPLE.zip'
       )
 
       expect { asset.save }.to raise_error(Sequel::ValidationFailed)
@@ -49,8 +52,9 @@ describe Asset do
     it 'uploads the asset_file to s3 passing a full path' do
       pending
       asset = Asset.create(
-        user:       @user,
-        asset_file: (Rails.root + 'db/fake_data/simple.json').to_s
+        configuration:  @confiuration,
+        user:           @user,
+        asset_file:     Rails.root + 'db/fake_data/simple.json'
       )
       
       asset.public_url  .should =~ %r{user/#{@user.username}/simple.json}
