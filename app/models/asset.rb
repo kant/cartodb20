@@ -5,16 +5,18 @@ require 'sequel'
 require_relative '../../services/data-repository/filesystem/s3/backend'
 
 class Asset < Sequel::Model
-  PUBLIC_ATTRIBUTES = %W{ id public_url user_id }
+  raise_on_save_failure = true
+
+  PUBLIC_ATTRIBUTES     = %W{ id public_url user_id }
 
   attr_accessor :asset_file, :remote, :configuration
-  attr_reader   :user, :user_id
+  attr_reader   :user
 
   def initialize(*args)
     super(*args)
-    @configuration  ||= Cartodb.config
-    @remote         ||= DataRepository::Filesystem::S3::Backend.new
-    self.raise_on_save_failure = true
+    self.configuration  ||= Cartodb.config
+    self.remote         ||= DataRepository::Filesystem::S3::Backend.new
+    self.asset_file     ||= String.new
   end #initialize
 
   def public_values
@@ -24,12 +26,14 @@ class Asset < Sequel::Model
   def save(*args)
     super(*args)
     upload(asset_file) unless asset_file.nil? || asset_file.empty?
+    self
   end #save
 
   def destroy(*args)
     super(*args)
     remove_remote_file unless public_url.nil? || public_url.empty?
-  end #after_destroy
+    self
+  end #destroy
 
   def validate
     super
@@ -44,13 +48,19 @@ class Asset < Sequel::Model
   end #user=
 
   def upload(file)
-    url = remote.store(remote_path, File.open(asset_file))
+    stream  = File.open(asset_file)
+    url     = remote.store(remote_path, stream)
     set(public_url: url.to_s)
+    stream.close
   end #upload
 
   def remove_remote_file
     remote.delete(path_for(public_url))
   end #remove_remote_file
+
+  def in_remote?
+    remote.exists?(asset_file)
+  end #in_remote?
 
   private
 
@@ -77,12 +87,6 @@ class Asset < Sequel::Model
   def unreadable?
     !File.readable?(asset_file)
   end # unreadable?
-
-  def payload
-    File.open(asset_file)
-  rescue Errno::ENOENT
-    false
-  end #file_or_prefix?
 
   def too_big?
     File.size(asset_file) > configuration.fetch(:assets).fetch('max_file_size')

@@ -28,6 +28,10 @@ module DataRepository
           object_from(bucket, object_name)
         end #fetch
 
+        def exists?(file_url)
+          fetch(file_url).exists?
+        end #exists?
+
         private
 
         attr_reader :connection, :bucket
