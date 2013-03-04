@@ -1,94 +1,85 @@
-class Asset < Sequel::Model
+# encoding: utf-8
+require 'mime/types'
+require_relative '../../services/data-repository/filesystem/s3/backend'
 
-  many_to_one :user
+class Asset < Sequel::Model
   PUBLIC_ATTRIBUTES = %W{ id public_url user_id }
 
+  #many_to_one :user
   attr_accessor :asset_file, :file
+  attr_reader   :remote, :user
 
   def public_values
-    Hash[PUBLIC_ATTRIBUTES.map{ |a| [a, self.send(a)] }]
-  end
+    Hash[PUBLIC_ATTRIBUTES.map { |attribute| [attribute, send(attribute)] }]
+  end #public_values
 
   def validate
     super
+    puts user_id
+    errors.add(:user_id, "can't be blank")          if user_id.blank?
+    #errors.add(:asset_file, "is too big, 10Mb max") if too_big?
+    #errors.add(:asset_file, "is invalid")           if unreadable?
+  end #validate
 
-    errors.add(:user_id, "can't be blank") if user_id.blank?
+  def initialize(*args)
+    super(*args)
+    @remote = DataRepository::Filesystem::S3::Backend.new
+  end #initialize
 
-    begin
-      file = (asset_file.is_a?(String) ? File.open(asset_file) : File.open(asset_file.path))
-    rescue Errno::ENOENT
-      errors.add(:asset_file, "is invalid")
-    end
-
-    if file.is_a?(File)
-      errors.add(:asset_file, "is invalid") unless File.readable?(file)
-      errors.add(:asset_file, "is too big, 10Mb max") unless file.size <= Cartodb::config[:assets]["max_file_size"]
-      file.close
-    end
-  end
-
-  def after_save
+  def save
     super
+    upload(asset_file) unless asset_file.blank?
+  end #save
 
-    store!(asset_file) unless asset_file.blank?
-  end
-
-  def after_destroy
+  def destroy
     super
+    remove_remote_file unless public_url.blank?
+  end #destroy
 
-    remove! unless self.public_url.blank?
-  end
+  def user=(user)
+    @user     = user
+    @user_id  = user.id
+  end #user=
 
-  ##
-  # Uploads the file and sets public_url attribute
-  # to the url of the remote S3 object
-  #
-  # === Parameters
-  #
-  # [file_path (String)] full path of the file to upload
-  #
-  def store!(file)
-    file_path = file.is_a?(String) ? file : file.path
-    basename  = file.is_a?(String) ? File.basename(file) : file.original_filename
+  def upload(file)
+    url = remote.store("#{prefix}/#{basename}", stream)
+    self.set(public_url: url.to_s)
+    self.this.update(public_url: url.to_s)
+  end #upload
 
-    # Upload the file
-    o = s3_bucket.objects["#{asset_path}#{basename}"]
-    o.write(Pathname.new(file_path), {
-      acl: :public_read,
-      content_type: MIME::Types.type_for(file_path).first.to_s
-    })
+  def remove_remote_file
+    remote.delete(path_for(public_url))
+  end #remove_remote_file
 
-    # Set the public_url attribute
-    remote_url = o.public_url.to_s
-    self.set(public_url: remote_url)
-    self.this.update(public_url: remote_url)
-  end
+  private
 
-  ##
-  # Removes the remote file
-  #
-  def remove!
-    basename = File.basename(public_url)
-    o = s3_bucket.objects["#{asset_path}#{basename}"]
-    o.delete
-  end
+  def prefix
+    File.join('user', user.username, 'assets')
+  end #prefix
 
-  ##
-  # Path to the file, relative to the storage system
-  #
-  def asset_path
-    "user/#{self.user_id}/assets/"
-  end
+  def object_options
+    {
+      acl:          :public_read,
+      content_type: MIME::Types.type_for(file_prefix).first.to_s
+    }
+  end #object_options
 
+  def unreadable?
+    !File.readable?(payload)
+  end # readable?
 
-  def s3_bucket_name
-    Cartodb.config[:assets]["s3_bucket_name"]
-  end
+  def payload
+    asset_file
+    #file = (asset_file.is_a?(String))
+    #File.open(asset_file)
+    #File.open(asset_file.path)
+  rescue Errno::ENOENT
+    false
+  end #file_or_prefix?
 
-  def s3_bucket
-    AWS.config(Cartodb.config[:aws]["s3"])
-    s3 = AWS::S3.new
+  def too_big?
+    return false unless asset_file
+    asset_file.size > Cartodb.config.fetch(:assets).fetch('max_file_size')
+  end #too_big?
+end # Asset
 
-    @s3_bucket ||= s3.buckets[s3_bucket_name]
-  end
-end

@@ -1,55 +1,106 @@
-require 'spec_helper'
+# encoding: utf-8
+require 'ostruct'
+require_relative '../spec_helper'
+require_relative '../../app/models/asset'
 
 describe Asset do
   before(:all) do
-    @user = create_user(:username => 'test', :email => "client@example.com", :password => "clientex")
+    @user = OpenStruct.new(
+      id:       rand(999),
+      username: 'test',
+      email:    'client@example.com',
+      password: 'clientex'
+    )
   end
 
-  it 'should upload the asset_file to s3 passing a full path' do
-    asset = Asset.create user_id: @user.id, asset_file: (Rails.root + 'db/fake_data/simple.json').to_s
-    
-    asset.public_url.should == "https://s3.amazonaws.com/tile_assets_devel/user/#{@user.id}/assets/simple.json"
-    path = "#{asset.asset_path}simple.json"
-    bucket = asset.s3_bucket
-    bucket.objects[path].exists?.should == true
-  end
+  describe 'validations' do
+    it 'requires a user_id' do
+      asset = Asset.new
 
-  it 'should upload the asset_file to s3 passing an uploaded file' do
-    asset = Asset.create user_id: @user.id, asset_file: Rack::Test::UploadedFile.new(Rails.root.join('db/fake_data/column_number_to_boolean.csv'), 'text/csv')
-    
-    asset.public_url.should == "https://s3.amazonaws.com/tile_assets_devel/user/#{@user.id}/assets/column_number_to_boolean.csv"
-    path = "#{asset.asset_path}column_number_to_boolean.csv"
-    bucket = asset.s3_bucket
-    bucket.objects[path].exists?.should == true
-  end
+      expect { asset.save }.to raise_error(Sequel::ValidationFailed)
+      asset.errors.full_messages.include?("user_id can't be blank")
+        .should == true
+    end
 
-  it 'should remove attachments from s3 after deletion' do
-    asset = Asset.create user_id: @user.id, asset_file: (Rails.root + 'db/fake_data/simple.json').to_s
-    path = "#{asset.asset_path}simple.json"
-    bucket = asset.s3_bucket
+    it 'requires a valid file' do
+      pending
+      asset = Asset.new(
+        user:       @user,
+        asset_file: Rails.root + 'db/fake_data/i_dont_exist.json'
+      )
+      
+      expect { asset.save }.to raise_error(Sequel::ValidationFailed)
+      asset.errors.full_messages.should == ["asset_file is invalid"]
+    end
 
-    bucket.objects[path].exists?.should == true
-    asset.destroy
-    expect { bucket.objects[path].exists? }.to raise_error(AWS::Errors::Base)
-  end
+    it 'rejects files bigger than 10 MB' do
+      pending
+      asset = Asset.new(
+        user:       @user,
+        asset_file: Rails.root + 'spec/support/data/GLOBAL_ELEVATION_SIMPLE.zip'
+      )
 
-  it 'should validate asset_file before saving' do
-    asset = Asset.new user_id: @user.id, asset_file: (Rails.root + 'db/fake_data/i_dont_exist.json').to_s
-    
-    expect { asset.save }.to raise_error(Sequel::ValidationFailed)
-    asset.errors.full_messages.should == ["asset_file is invalid"]
-  end
+      expect { asset.save }.to raise_error(Sequel::ValidationFailed)
+      asset.errors.full_messages.should == ["asset_file is too big, 10Mb max"]
+    end
+  end # validations
 
-  it 'should correctly return public values' do
-    asset = Asset.new user_id: @user.id, asset_file: (Rails.root + 'db/fake_data/simple.json').to_s
+  describe '#save' do
+    it 'uploads the asset_file to s3 passing a full path' do
+      pending
+      asset = Asset.create(
+        user:       @user,
+        asset_file: (Rails.root + 'db/fake_data/simple.json').to_s
+      )
+      
+      asset.public_url  .should =~ %r{user/#{@user.username}/simple.json}
+      asset.in_remote?  .should == true
+    end
 
-    asset.public_values.should == { "public_url" => nil, "user_id" => @user.id, "id" => nil }
-  end
+    it 'uploads the asset_file to s3 passing an uploaded file' do
+      pending
+      asset_file = Rack::Test::UploadedFile.new(
+        Rails.root.join('db/fake_data/column_number_to_boolean.csv'), 'text/csv'
+      )
 
-  it 'should not allow a user to upload files bigger than 10Mb' do
-    asset = Asset.new user_id: @user.id, asset_file: (Rails.root + 'spec/support/data/GLOBAL_ELEVATION_SIMPLE.zip').to_s
+      asset = Asset.create(
+        user:       @user,
+        asset_file: asset_file
+      )
+      
+      asset.public_url  .should =~ %r{user/#{@user.username}/.*to_boolean.csv}
+      asset.in_remote?  .should == true
+    end
+  end #save
 
-    expect { asset.save }.to raise_error(Sequel::ValidationFailed)
-    asset.errors.full_messages.should == ["asset_file is too big, 10Mb max"]
-  end
-end
+  describe '#destroy' do
+    it 'removes remote files' do
+      pending
+      asset = Asset.create(
+        user:       @user,
+        asset_file: Rails.root + 'db/fake_data/simple.json'
+      )
+
+      asset.in_remote?.should == true
+      asset.destroy
+      asset.in_remote?.should == false
+    end
+  end #destroy
+
+  describe '#public_values' do
+    it 'returns public attributes' do
+      pending
+      asset = Asset.new(
+        user:       @user,
+        asset_file: Rails.root + 'db/fake_data/simple.json'
+      )
+
+      asset.public_values.should == {
+        "id"          => nil,
+        "public_url"  => nil,
+        "user_id"     => @user.id
+      }
+    end
+  end #public_values
+end # Asset
+
