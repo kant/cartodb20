@@ -35,7 +35,7 @@
   </head>
   <body>
     <% if @table.public? %>
-      <div id="map"></div>
+    <div id="map"></div>
     <% end %>
 
     <% if @table.map.provider == 'googlemaps' %>
@@ -54,50 +54,45 @@
     <script>
 
       function get_url_params(conversion) {
-
         conversion = conversion || {};
-
         var tokens = location.search.slice(1).split('&');
         var params = {};
-
-        for (var i = 0; i < tokens.length; ++i) {
-
+        for(var i = 0; i < tokens.length; ++i) {
           var tk = tokens[i].split('=');
           var fn = conversion[tk[0]] || function(v) { return v };
-
-          if (tk.length === 2) {
+          if(tk.length === 2) {
             params[tk[0]] = fn(decodeURIComponent(tk[1]));
           }
         }
-
         return params;
       }
 
-      $(document).ready(function(){
 
+      $(document).ready(function(){
         var bool_fn = function(v) { return v == 'true' }
-        , is_custom_install = <%= Cartodb.config[:cartodb_com_hosted].present? %>
-        , logo_fn = function(v) { return ("<%= @table.owner.account_type.downcase %>" != "coronelli" || is_custom_install) ? true : v == 'true' };
+          , is_custom_install = <%= Cartodb.config[:cartodb_com_hosted].present? %>
+          , logo_fn = function(v) { return ("<%= @table.owner.account_type.downcase %>" != "coronelli" || is_custom_install) ? true : v == 'true' };
 
         var opt = get_url_params({
-          'search':       bool_fn,
-          'title':        bool_fn,
-          'description':  bool_fn,
-          'shareable':    bool_fn,
+          'search': bool_fn,
+          'title': bool_fn,
+          'description': bool_fn,
+          'shareable': bool_fn,
           'cartodb_logo': logo_fn,
-          'scrollwheel':  bool_fn
+          'scrollwheel': bool_fn
         });
 
         <% if Rails.env.development? %>
-        opt.no_cdn = true;
+          opt.no_cdn = true;
         <% end %>
 
         cartodb.createVis('map', '<%= v1_vizjson_url(@tabla) %>', opt, function(vis) {
           // add here your code
-          window.vis = vis;
         });
       });
+
     </script>
+
     <%= render 'shared/analytics', ua: Cartodb.config[:google_analytics]["embeds"] %>
   </body>
 </html>
